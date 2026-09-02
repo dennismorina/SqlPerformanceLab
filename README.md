@@ -18,7 +18,7 @@ The project is intentionally focused on **query behavior, indexing and SQL Serve
 - deterministic benchmark data
 - automated benchmark execution
 - Markdown result reports
-- SQL Server 2022 in Docker
+- SQL Server 2025 in Docker
 - GitHub Actions smoke testing
 
 ## Architecture
@@ -235,7 +235,7 @@ GitHub Actions runs two jobs:
 - **Build & Test**
 - **SQL Server Benchmark Smoke Test**
 
-The SQL Server job starts SQL Server 2022, creates the benchmark database, seeds the test data and executes every scenario once.
+The SQL Server job starts SQL Server 2025, creates the benchmark database, seeds the test data and executes every scenario once.
 
 ## Notes
 
