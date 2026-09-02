@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+.vs/
+.idea/
+TestResults/
+results/*.md
+!results/.gitkeep
+*.user
+*.suo
+*.nupkg
+.DS_Store

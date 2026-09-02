@@ -1,0 +1,24 @@
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: "Developer"
+      MSSQL_SA_PASSWORD: "SqlPerfLab_2026!"
+    ports:
+      - "1435:1433"
+    volumes:
+      - sqlperf-data:/var/opt/mssql
+
+  lab:
+    build:
+      context: .
+      dockerfile: src/SqlPerformanceLab.Runner/Dockerfile
+    depends_on:
+      sqlserver:
+        condition: service_started
+    environment:
+      SQLPERFLAB_CONNECTION_STRING: "Server=sqlserver,1433;Database=master;User Id=sa;Password=SqlPerfLab_2026!;TrustServerCertificate=True;Encrypt=False"
+
+volumes:
+  sqlperf-data:

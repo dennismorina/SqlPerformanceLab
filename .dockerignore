@@ -1,0 +1,9 @@
+**/bin
+**/obj
+.vs
+.git
+.github
+TestResults
+results
+README.md
+LICENSE
