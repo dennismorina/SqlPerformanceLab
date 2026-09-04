@@ -1,25 +1,34 @@
 # SqlPerformanceLab
 
 [![CI](https://github.com/dennismorina/SqlPerformanceLab/actions/workflows/ci.yml/badge.svg)](https://github.com/dennismorina/SqlPerformanceLab/actions/workflows/ci.yml)
+![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)
+![SQL Server](https://img.shields.io/badge/SQL%20Server-2025-CC2927)
+![Docker](https://img.shields.io/badge/Docker-ready-2496ED)
+![License](https://img.shields.io/badge/License-MIT-green)
 
-A reproducible SQL Server performance lab for demonstrating common query-performance problems and the impact of targeted fixes.
+A reproducible **SQL Server performance lab** demonstrating common query-performance problems and the impact of targeted optimizations.
 
-The project is intentionally focused on **query behavior, indexing and SQL Server execution characteristics** rather than application CRUD.
+SqlPerformanceLab focuses on **query behavior, indexing, SARGability and SQL Server execution characteristics** rather than application CRUD.
 
-## What it demonstrates
+## Highlights
 
+- .NET 10 / C#
+- SQL Server 2025
 - SARGable vs. non-SARGable predicates
-- implicit `varchar` / `nvarchar` conversions
-- functions applied to indexed columns
-- covering indexes
-- deep `OFFSET` pagination vs. keyset pagination
+- Implicit `varchar` / `nvarchar` conversions
+- Functions applied to indexed columns
+- Covering indexes
+- Deep `OFFSET` pagination vs. keyset pagination
 - SARGable join predicates
 - SQL Server logical-read measurement with `SET STATISTICS IO`
-- deterministic benchmark data
-- automated benchmark execution
+- Deterministic benchmark data
+- Automated benchmark execution
 - Markdown result reports
-- SQL Server 2025 in Docker
-- GitHub Actions smoke testing
+- Docker / Docker Compose
+- Unit tests
+- GitHub Actions
+- Real SQL Server benchmark smoke testing in CI
+- Dependabot
 
 ## Architecture
 
@@ -43,9 +52,18 @@ src/
 
 tests/
 └── SqlPerformanceLab.Tests/
+
+.github/
+├── workflows/
+│   └── ci.yml
+└── dependabot.yml
+
+docker-compose.yml
+SqlPerformanceLab.sln
+README.md
 ```
 
-Each scenario contains four explicit sections:
+Each benchmark scenario is split into four explicit sections:
 
 ```sql
 -- @setup
@@ -54,86 +72,26 @@ Each scenario contains four explicit sections:
 -- @teardown
 ```
 
-The runner executes the setup, warms both query variants, measures elapsed time and logical reads, and then removes scenario-specific indexes.
+The runner executes scenario setup, warms both query variants, measures execution time and logical reads, and removes scenario-specific indexes afterwards.
 
-## Requirements
+## Benchmark Dataset
 
-- .NET 10 SDK
-- Docker Desktop
-
-No local SQL Server installation is required.
-
-## Quick start
-
-Start SQL Server:
-
-```powershell
-docker compose up -d sqlserver
-```
-
-Create the database, schema and benchmark data:
-
-```powershell
-dotnet run --project src/SqlPerformanceLab.Runner -- setup
-```
-
-List scenarios:
-
-```powershell
-dotnet run --project src/SqlPerformanceLab.Runner -- list
-```
-
-Run all benchmarks:
-
-```powershell
-dotnet run --project src/SqlPerformanceLab.Runner -- `
-  run `
-  --scenario all `
-  --iterations 3 `
-  --output results/latest.md
-```
-
-The default local connection is:
-
-```text
-Server=localhost,1435
-Database=master
-User Id=sa
-Password=SqlPerfLab_2026!
-```
-
-The lab uses host port **1435** so it does not occupy the default SQL Server port `1433`.
-
-## Fully containerized
-
-```powershell
-docker compose build lab
-docker compose up -d sqlserver
-docker compose run --rm --no-deps lab setup
-docker compose run --rm --no-deps lab run --scenario all --iterations 3
-```
-
-Clean up:
-
-```powershell
-docker compose down -v
-```
-
-## Benchmark dataset
-
-The setup creates:
+The setup creates a deterministic SQL Server dataset containing:
 
 - 50,000 customers
 - 250,000 orders
 - four years of distributed order dates
 - deterministic customer codes and external references
-- multiple order statuses and realistic lookup patterns
+- multiple order statuses
+- realistic lookup and filtering patterns
 
-The dataset is intentionally large enough to make plan differences visible while still being practical for local development and CI.
+The dataset is large enough to make query-plan and logical-read differences visible while remaining practical for local development and CI.
 
 ## Scenarios
 
-### 1. Date range SARGability
+### 1. Date Range SARGability
+
+A function applied to the indexed date column prevents an efficient index seek.
 
 Bad:
 
@@ -148,13 +106,33 @@ WHERE OrderDate >= @TargetDate
   AND OrderDate < DATEADD(day, 1, @TargetDate)
 ```
 
-### 2. Implicit conversion
+The optimized predicate keeps the indexed column unchanged and expresses the condition as a searchable range.
+
+---
+
+### 2. Implicit Conversion
 
 An `nvarchar` parameter is compared with an indexed `varchar` column.
 
-The optimized form uses the matching `varchar` type so SQL Server does not need to convert the indexed column.
+The type mismatch can force SQL Server to convert the indexed column during query execution.
 
-### 3. Function on indexed column
+The optimized version uses a parameter type matching the database column:
+
+```text
+varchar → varchar
+```
+
+instead of:
+
+```text
+nvarchar → varchar
+```
+
+This allows SQL Server to use the index more efficiently.
+
+---
+
+### 3. Function on Indexed Column
 
 Bad:
 
@@ -168,18 +146,26 @@ Better:
 WHERE Email = @Email
 ```
 
-The dataset is normalized during ingestion, so the query does not need to transform the indexed column.
+The dataset is normalized during ingestion, so the query does not need to transform the indexed column at runtime.
 
-### 4. Covering index
+Keeping functions away from indexed search columns allows SQL Server to use indexes more effectively.
 
-The optimized query can use an index aligned to its filter and projection:
+---
+
+### 4. Covering Index
+
+The optimized query uses an index aligned with both its filter and projection:
 
 ```sql
 (Status, OrderDate)
 INCLUDE (CustomerId, TotalAmount)
 ```
 
-The bad variant intentionally forces the clustered primary key to produce a stable baseline for this lab scenario.
+This can eliminate additional lookups because all required columns are available directly from the index.
+
+The bad variant deliberately uses the clustered primary key to provide a stable and reproducible baseline for the benchmark.
+
+---
 
 ### 5. Pagination
 
@@ -197,7 +183,13 @@ WHERE Id > @LastSeenId
 ORDER BY Id
 ```
 
-### 6. Join predicate
+As page depth increases, `OFFSET` requires SQL Server to process increasingly large numbers of rows before returning the requested page.
+
+Keyset pagination instead continues from the last known key.
+
+---
+
+### 6. Join Predicate
 
 Bad:
 
@@ -211,34 +203,264 @@ Better:
 ON o.CustomerCode = c.CustomerCode
 ```
 
-## Interpreting results
+Applying a function to the join column can prevent efficient index usage.
 
-Elapsed time can vary depending on hardware, background load and cache state.
+The optimized query compares the normalized values directly.
 
-For that reason the runner also captures **logical reads** from SQL Server. Logical reads are usually the more useful signal when comparing two logically equivalent query shapes.
+## Measurements
 
-Example:
+The runner measures two signals:
+
+```text
+Elapsed Time
+Logical Reads
+```
+
+Elapsed time is useful but can vary depending on:
+
+- hardware
+- CPU load
+- background processes
+- cache state
+- container resources
+
+For that reason, the runner also captures SQL Server logical reads through:
+
+```sql
+SET STATISTICS IO ON
+```
+
+Logical reads usually provide a more stable indication of how much work SQL Server performs for equivalent queries.
+
+Example output:
 
 ```text
 [01_date_sargability] Date range SARGability
-  BAD :    12.41 ms |      1,245 logical reads
-  GOOD:     1.17 ms |          8 logical reads
-  Gain: 10.61x faster | 99.4% fewer logical reads
+
+BAD :    12.41 ms | 1,245 logical reads
+GOOD:     1.17 ms |     8 logical reads
+
+Gain: 10.61x faster | 99.4% fewer logical reads
 ```
 
-Exact numbers vary by machine.
+Exact benchmark numbers vary by machine.
 
-## CI
+## Requirements
 
-GitHub Actions runs two jobs:
+For local execution:
 
-- **Build & Test**
-- **SQL Server Benchmark Smoke Test**
+- .NET 10 SDK
+- Docker Desktop
 
-The SQL Server job starts SQL Server 2025, creates the benchmark database, seeds the test data and executes every scenario once.
+No local SQL Server installation is required.
 
-## Notes
+## Quick Start
 
-This is an educational performance lab. Query hints are avoided except in the covering-index scenario, where a clustered-index hint is used deliberately to create a stable and reproducible baseline.
+Start SQL Server:
 
-Production optimization should always be based on the real workload, actual execution plans, statistics, data distribution and measured system behavior.
+```powershell
+docker compose up -d sqlserver
+```
+
+Create the database, schema and benchmark dataset:
+
+```powershell
+dotnet run --project src/SqlPerformanceLab.Runner -- setup
+```
+
+List available scenarios:
+
+```powershell
+dotnet run --project src/SqlPerformanceLab.Runner -- list
+```
+
+Run all benchmarks:
+
+```powershell
+dotnet run --project src/SqlPerformanceLab.Runner -- `
+  run `
+  --scenario all `
+  --iterations 3 `
+  --output results/latest.md
+```
+
+## Local SQL Server Connection
+
+The default development connection is:
+
+```text
+Server=localhost,1435
+Database=master
+User Id=sa
+Password=SqlPerfLab_2026!
+```
+
+The lab deliberately uses host port:
+
+```text
+1435
+```
+
+instead of the default SQL Server port `1433` to avoid conflicts with other local environments.
+
+## Fully Containerized Execution
+
+The benchmark runner can also execute completely inside Docker.
+
+Build the runner:
+
+```powershell
+docker compose build lab
+```
+
+Start SQL Server:
+
+```powershell
+docker compose up -d sqlserver
+```
+
+Create the benchmark environment:
+
+```powershell
+docker compose run --rm --no-deps lab setup
+```
+
+Run all scenarios:
+
+```powershell
+docker compose run --rm --no-deps lab `
+  run `
+  --scenario all `
+  --iterations 3
+```
+
+Clean up:
+
+```powershell
+docker compose down -v
+```
+
+> `-v` removes the SQL Server volume and therefore the generated benchmark database.
+
+## Testing
+
+Run the automated tests:
+
+```powershell
+dotnet test --solution SqlPerformanceLab.sln --configuration Release
+```
+
+The tests focus on runner and benchmark infrastructure behavior.
+
+The actual SQL performance scenarios are additionally executed against a real SQL Server instance in GitHub Actions.
+
+## Continuous Integration
+
+Every push and pull request targeting `main` runs two GitHub Actions jobs:
+
+```text
+Build & Test
+      |
+      v
+SQL Server Benchmark Smoke Test
+```
+
+### Build & Test
+
+The first job performs:
+
+```text
+Restore
+   ↓
+Release Build
+   ↓
+Unit Tests
+```
+
+### SQL Server Benchmark Smoke Test
+
+The second job:
+
+```text
+Build Docker benchmark runner
+        ↓
+Start SQL Server 2025
+        ↓
+Create database and schema
+        ↓
+Seed benchmark data
+        ↓
+Run every SQL scenario
+        ↓
+Clean up containers
+```
+
+This verifies that the benchmark environment works against a real SQL Server instance rather than relying only on mocked or in-memory infrastructure.
+
+## Dependency Management
+
+Dependabot checks project dependencies regularly.
+
+Configured ecosystems include:
+
+- NuGet
+- GitHub Actions
+- Docker
+- Docker Compose
+
+Dependency updates run through the same CI pipeline as normal code changes.
+
+## Technology Stack
+
+| Area | Technology |
+|---|---|
+| Language | C# |
+| Runtime | .NET 10 |
+| Database | SQL Server 2025 |
+| Database Client | Microsoft.Data.SqlClient |
+| Performance Metrics | `SET STATISTICS IO` |
+| Benchmarking | Custom .NET runner |
+| Testing | xUnit v3 |
+| Containers | Docker / Docker Compose |
+| CI | GitHub Actions |
+| Dependency Updates | Dependabot |
+
+## Design Goals
+
+SqlPerformanceLab demonstrates several SQL performance concepts frequently encountered in real business applications:
+
+- writing SARGable predicates
+- avoiding implicit conversions
+- avoiding functions on indexed search columns
+- designing covering indexes
+- choosing scalable pagination strategies
+- optimizing join predicates
+- measuring logical reads instead of relying only on execution time
+- reproducing performance scenarios with deterministic data
+- validating database behavior against a real SQL Server instance
+- automating database performance scenarios in CI
+
+The project deliberately remains focused on **SQL performance analysis and query optimization** instead of becoming another application or CRUD API.
+
+## Important Note
+
+This repository is a reproducible performance lab.
+
+Benchmark results should not be interpreted as universal performance guarantees.
+
+Real production optimization should always consider:
+
+- actual execution plans
+- production data distribution
+- statistics
+- parameter values
+- indexes
+- workload concurrency
+- hardware and infrastructure
+- measured application behavior
+
+Query hints are avoided except where deliberately used to create a stable benchmark baseline.
+
+## License
+
+This project is licensed under the MIT License.
