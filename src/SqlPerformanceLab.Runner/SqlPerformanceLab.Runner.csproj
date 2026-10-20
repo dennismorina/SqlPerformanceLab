@@ -6,6 +6,7 @@
   <ItemGroup>
     <ProjectReference Include="..\SqlPerformanceLab.Core\SqlPerformanceLab.Core.csproj" />
     <PackageReference Include="Microsoft.Data.SqlClient" />
+	<PackageReference Include="System.Security.Cryptography.Pkcs" />
   </ItemGroup>
 
   <ItemGroup>
