@@ -16,7 +16,7 @@ RUN dotnet publish src/SqlPerformanceLab.Runner/SqlPerformanceLab.Runner.csproj 
     --no-restore \
     --output /app/publish
 
-FROM mcr.microsoft.com/dotnet/runtime:10.0
+FROM mcr.microsoft.com/dotnet/runtime:11.0
 WORKDIR /app
 COPY --from=build /app/publish .
 ENTRYPOINT ["dotnet", "SqlPerformanceLab.Runner.dll"]
